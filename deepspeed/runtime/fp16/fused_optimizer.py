@@ -54,6 +54,8 @@ class FP16_Optimizer(object):
             # push this group to list before modify
             self.fp16_groups.append(param_group['params'])
             # init fp16 weight buffer, flattened
+            print(f"DEBUG: GROUP {i} TENSORS")
+            print(self.fp16_groups[i])
             self.fp16_groups_flat.append(
                 _flatten_dense_tensors([p.clone().detach()
                                         for p in self.fp16_groups[i]]))
