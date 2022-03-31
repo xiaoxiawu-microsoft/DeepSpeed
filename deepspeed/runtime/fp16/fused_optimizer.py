@@ -50,6 +50,8 @@ class FP16_Optimizer(object):
         self._global_grad_norm = 0.
 
         # loop to deal with groups
+        print("DEBUG: ALL PARAM GROUPS:")
+        print(self.optimizer.param_groups)
         for i, param_group in enumerate(self.optimizer.param_groups):
             # push this group to list before modify
             self.fp16_groups.append(param_group['params'])
