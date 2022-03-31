@@ -116,6 +116,13 @@ def initialize(args=None,
     assert model is not None, "deepspeed.initialize requires a model"
 
     if not isinstance(model, PipelineModule):
+        print("DEBUG: ARGS:")
+        print(args)
+        print("DEBUG: CONFIG:")
+        print(config)
+        print("DEBUG: CONFIG_PARAMS:")
+        print(config_params)
+
         engine = DeepSpeedEngine(args=args,
                                  model=model,
                                  optimizer=optimizer,

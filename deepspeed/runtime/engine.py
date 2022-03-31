@@ -290,6 +290,10 @@ class DeepSpeedEngine(Module):
         self.basic_optimizer = None
         self.lr_scheduler = None
         if model_parameters or optimizer:
+            print("DEBUG: MODEL PARAMS PROVIDED:")
+            print(model_parameters)
+            print("DEBUG: MODEL PARAMS:")
+            print(model.parameters())
             self._configure_optimizer(optimizer, model_parameters)
             self._configure_lr_scheduler(lr_scheduler)
             self._report_progress(0)
