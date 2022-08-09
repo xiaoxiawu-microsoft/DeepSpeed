@@ -1228,41 +1228,34 @@ def test_checkpoint_zero_elastic(tmpdir, elastic_save, elastic_load, load_optim)
     _go()
 
 
-@pytest.mark.parametrize(["elastic_save",
-                          "elastic_load",
-                          "load_optim"],
-                         itertools.product(*[[True,
-                                              False],
-                                             [True,
-                                              False],
-                                             [True,
-                                              False]]))
-def test_checkpoint_zero_elastic_dp_change(tmpdir,
-                                           elastic_save,
-                                           elastic_load,
-                                           load_optim):
-    ds_config = {
-        "train_batch_size": 4,
-        "optimizer": {
-            "type": 'Adam'
-        },
-        "fp16": {
-            "enabled": True,
-            "initial_scale_power": 8
-        },
-        "zero_optimization": {
-            "stage": 2,
-            "elastic_checkpoint": elastic_save
-        }
-    }
-    hidden_dim = 10
-    models = [SimpleModel(hidden_dim) for _ in range(2)]
+from tests.unit.common import DistributedTest
 
-    @distributed_test(world_size=[4])
-    def _go2(models):
+@pytest.mark.parametrize("elastic_save", [True, False])
+@pytest.mark.parametrize("elastic_load", [True, False])
+@pytest.mark.parametrize("load_optim", [True, False])
+class TestCheckpointZeroElasticDPChange(DistributedTest):
+
+    @pytest.mark.world_size(2)
+    def test_save_checkpoint(self, class_tmpdir, elastic_save, elastic_load, load_optim):
+        ds_config = {
+            "train_batch_size": 4,
+            "optimizer": {
+                "type": 'Adam'
+            },
+            "fp16": {
+                "enabled": True,
+                "initial_scale_power": 8
+            },
+            "zero_optimization": {
+                "stage": 2,
+                "elastic_checkpoint": elastic_save
+            }
+        }
+        hidden_dim = 10
+        model = SimpleModel(hidden_dim)
         model, _, _, _ = deepspeed.initialize(config=ds_config,
-                                              model=models[0],
-                                              model_parameters=models[0].parameters())
+                                              model=model,
+                                              model_parameters=model.parameters())
         data_loader = random_dataloader(model=model,
                                         total_samples=8,
                                         hidden_dim=hidden_dim,
@@ -1272,27 +1265,43 @@ def test_checkpoint_zero_elastic_dp_change(tmpdir,
             model.backward(loss)
             model.step()
 
+        tag = f"{elastic_save}-{elastic_load}-{load_optim}"
         if load_optim:
             torch.save(model.optimizer.optimizer.state_dict(),
-                       os.path.join(tmpdir,
-                                    'opt-state-dict'))
-        model.save_checkpoint(tmpdir)
+                       os.path.join(class_tmpdir,
+                                    f"opt-state-dict-{tag}"))
+        model.save_checkpoint(class_tmpdir, tag=tag)
 
-    _go2(models)
 
-    @distributed_test(world_size=[2])
-    def _go1(models):
-        ds_config["zero_optimization"]["elastic_checkpoint"] = elastic_load
+    @pytest.mark.world_size(1)
+    @pytest.mark.run(after="TestCheckpointZeroElasticDPChange::test_save_checkpoint")
+    def _test_load_checkpoint(self, class_tmpdir, elastic_save, elastic_load, load_optim):
+        ds_config = {
+            "train_batch_size": 4,
+            "optimizer": {
+                "type": 'Adam'
+            },
+            "fp16": {
+                "enabled": True,
+                "initial_scale_power": 8
+            },
+            "zero_optimization": {
+                "stage": 2,
+                "elastic_checkpoint": elastic_load
+            }
+        }
+        hidden_dim = 10
+        model = SimpleModel(self.hidden_dim)
         model, _, _, _ = deepspeed.initialize(config=ds_config,
-                                                  model=models[1],
-                                                  model_parameters=models[1].parameters())
+                                                  model=model,
+                                                  model_parameters=model.parameters())
+
+        tag = f"{elastic_save}-{elastic_load}-{load_optim}"
         if load_optim:
             with pytest.raises(deepspeed.runtime.zero.utils.ZeRORuntimeException):
-                model.load_checkpoint(tmpdir, load_optimizer_states=load_optim)
+                model.load_checkpoint(class_tmpdir, load_optimizer_states=load_optim, tag=tag)
         else:
-            model.load_checkpoint(tmpdir, load_optimizer_states=load_optim)
-
-    _go1(models)
+            model.load_checkpoint(class_tmpdir, load_optimizer_states=load_optim, tag=tag)
 
 
 @pytest.mark.parametrize('zero_stage', [0, 1, 2, 3])
