@@ -1,114 +1,124 @@
 '''
 Copyright 2022 The Microsoft DeepSpeed Team
 '''
+from pydantic import Field, root_validator
+from enum import Enum
 from .constants import *
 import copy
-from ..config_utils import get_scalar_param
+from ..config_utils import DeepSpeedConfigModel
 
 
-# TODO: Reducing config verbosity by returning None or {} when disabled.
-# One challenge is that we still need to somehow include the default values,
-# for example the *_ENABLED has default of false.
 def get_data_efficiency_config(param_dict):
-    output = {}
-    output[DATA_EFFICIENCY_ENABLED] = get_data_efficiency_enabled(param_dict)
-    output[DATA_EFFICIENCY_SEED] = get_data_efficiency_seed(param_dict)
-    if DATA_EFFICIENCY not in param_dict.keys():
-        param_dict[DATA_EFFICIENCY] = {}
-    sub_param_dict = param_dict[DATA_EFFICIENCY]
-    output[DATA_SAMPLING] = get_data_sampling(sub_param_dict)
-    output[DATA_ROUTING] = get_data_routing(sub_param_dict)
-
-    return output
+    return DeepSpeedDataEfficiencyConfig(**param_dict.get("data_efficiency", {}))
 
 
-def get_data_efficiency_enabled(param_dict):
-    if DATA_EFFICIENCY in param_dict.keys():
-        return get_scalar_param(param_dict[DATA_EFFICIENCY],
-                                DATA_EFFICIENCY_ENABLED,
-                                DATA_EFFICIENCY_ENABLED_DEFAULT)
-    else:
-        return False
+class ClusteringTypeEnum(str, Enum):
+    schedule_base = "schedule_based"
+    single_cluster = "single_cluster"
+
+class DifficultyTypeEnum(str, Enum):
+    value = "value"
+    percentile = "percentile"
+
+class CurriculumScheduleTypeEnum(str, Enum):
+    fixed_linear = "fixed_linear"
+    fixed_root = "fixed_root"
+    fixed_discrete = "fixed_discrete"
+    custom = "custom"
 
 
-def get_data_efficiency_seed(param_dict):
-    if DATA_EFFICIENCY in param_dict.keys():
-        return get_scalar_param(param_dict[DATA_EFFICIENCY],
-                                DATA_EFFICIENCY_SEED,
-                                DATA_EFFICIENCY_SEED_DEFAULT)
-    else:
-        return DATA_EFFICIENCY_SEED_DEFAULT
+class CurriculumScheduleConfig(DeepSpeedConfigModel):
+    total_curriculum_step: int = None
+    difficulty_step: int = None
+    root_degree: int = None
+    difficulty: List[int] = None
+    max_step: List[int] = None
 
 
-def get_data_sampling(param_dict):
-    output = {}
-    output[DATA_SAMPLING_ENABLED] = get_data_sampling_enabled(param_dict)
-    output[DATA_SAMPLING_NUM_EPOCHS] = get_data_sampling_num_epochs(param_dict)
-    output[DATA_SAMPLING_NUM_WORKERS] = get_data_sampling_num_workers(param_dict)
-    if DATA_SAMPLING not in param_dict.keys():
-        param_dict[DATA_SAMPLING] = {}
-    sub_param_dict = param_dict[DATA_SAMPLING]
-    output[CURRICULUM_LEARNING] = get_curriculum_learning(sub_param_dict)
-
-    return output
+class CurriculumMetricsConfig(DeepSpeedConfigModel):
+    index_to_sample_path: str = None
+    index_to_metric_path: str = None
+    difficulty_type: DifficultTypeEnum = None
+    clustering_type: ClusterTypeEnum = None
+    min_difficulty: int = None
+    max_difficulty: int = None
+    schedule_type: CurriculumScheduleTypeEnum = None
+    schedule_config: ScheduleConfig = {}
 
 
-def get_data_sampling_enabled(param_dict):
-    if DATA_SAMPLING in param_dict.keys():
-        return get_scalar_param(param_dict[DATA_SAMPLING],
-                                DATA_SAMPLING_ENABLED,
-                                DATA_SAMPLING_ENABLED_DEFAULT)
-    else:
-        return False
+class CurriculumLearningConfig(DeepSpeedConfigModel):
+    enabled: bool = False
+    data_cluser_path: str = None
+    curriculum_metrics: Dict[str,CurriculumMetricsConfig] = {}
+
+    @root_validator
+    def assert_curriculum_metrics(cls, values):
+        if values.get("enabled"):
+            assert values[curriculum_metrics] != {}, "Curriculum learning is enabled, 'curriculum_metrics' must be specified"
+        return values
 
 
-def get_data_sampling_num_epochs(param_dict):
-    if DATA_SAMPLING in param_dict.keys():
-        return get_scalar_param(param_dict[DATA_SAMPLING],
-                                DATA_SAMPLING_NUM_EPOCHS,
-                                DATA_SAMPLING_NUM_EPOCHS_DEFAULT)
-    else:
-        return DATA_SAMPLING_NUM_EPOCHS_DEFAULT
+class DataSamplingConfig(DeepSpeedConfigModel):
+    enabled: bool = False
+    num_epochs: int = Field(1000, ge=0)
+    num_workers: int = Field(0, ge=0)
+    curriculum_learning: CurriculumLearningConfig = {}
 
 
-def get_data_sampling_num_workers(param_dict):
-    if DATA_SAMPLING in param_dict.keys():
-        return get_scalar_param(param_dict[DATA_SAMPLING],
-                                DATA_SAMPLING_NUM_WORKERS,
-                                DATA_SAMPLING_NUM_WORKERS_DEFAULT)
-    else:
-        return DATA_SAMPLING_NUM_WORKERS_DEFAULT
+class ModelTypeEnum(str, Enum):
+    encoder = "encoder"
+    decoder = "decoder"
 
 
-def get_curriculum_learning(param_dict):
-    output = {}
-    output[CURRICULUM_LEARNING_ENABLED] = get_curriculum_learning_enabled(param_dict)
-    if CURRICULUM_LEARNING not in param_dict.keys():
-        param_dict[CURRICULUM_LEARNING] = {}
-    sub_param_dict = param_dict[CURRICULUM_LEARNING]
-    if output[CURRICULUM_LEARNING_ENABLED]:
-        assert CURRICULUM_LEARNING_METRICS in sub_param_dict.keys(), f"Curriculum learning is enabled, {CURRICULUM_LEARNING_METRICS} must be specified"
-        for key, val in get_curriculum_learning_params(param_dict).items():
-            output[key] = val
-    return output
+class HiddenStateOrderEnum(str, Enum):
+    batch_seq_dim = "batch_seq_dim"
+    seq_batch_dim = "seq_batch_dim"
 
 
-def get_curriculum_learning_enabled(param_dict):
-    if CURRICULUM_LEARNING in param_dict.keys():
-        return get_scalar_param(param_dict[CURRICULUM_LEARNING],
-                                CURRICULUM_LEARNING_ENABLED,
-                                CURRICULUM_LEARNING_ENABLED_DEFAULT)
-    else:
-        return False
+class LTDScheduleTypeEnum(str, Enum):
+    fixed_linear = "fixed_linear"
 
 
-def get_curriculum_learning_params(param_dict):
-    if CURRICULUM_LEARNING in param_dict.keys():
-        curriculum_learning_params = copy.copy(param_dict[CURRICULUM_LEARNING])
-        curriculum_learning_params.pop(CURRICULUM_LEARNING_ENABLED)
-        return curriculum_learning_params
-    else:
-        return {}
+class LTDScheduleConfig(DeepSpeedConfigModel):
+    require_steps: int = None
+    seq_per_step: int = None
+
+
+class RandomLTDScheduleConfig(DeepSpeedConfigModel):
+    min_value: int = None
+    max_value: int = None
+    schedule_type: LTDScheduleTypeEnum = None
+    schedule_config: LTDScheduleConfig = {}
+
+
+class RandomLTDConfig(DeepSpeedConfigModel):
+    enabled: bool = False
+    total_layer_num: int = Field(None, ge=0)
+    random_ltd_layer_num: int = Field(None, ge=0)
+    random_ltd_layer_id: List[int]
+    model_mask_name: str = None
+    model_type: ModelTypeEnum = None
+    hidden_state_order: HiddenStateOrderEnum = None
+    random_ltd_schedule: RandomLTDScheduleConfig = {}
+
+    @root_validator
+    def check_random_ltd_layer_id(cls, values):
+        layer_num = values.get("random_ltd_layer_num")
+        layer_id_list = values.get("random_ltd_layer_id")
+        assert len(layer_id_list) == layer_num, "'random_ltd_layer_id' list length must match value given in 'random_ltd_layer_num'"
+        return values
+
+
+class DataRoutingConfig(DeepSpeedConfigModel):
+    enabled: bool = False
+    random_ltd: RandomLTDConfig = {}
+
+
+class DeepSpeedDataEfficiencyConfig(DeepSpeedConfigModel):
+    enabled: bool = False
+    seed: int = Field(1234, ge=0)
+    data_sampling: DataSamplingConfig = {}
+    data_routing: DataRoutingConfig = {}
 
 
 def get_curriculum_enabled_legacy(param_dict):
@@ -127,54 +137,3 @@ def get_curriculum_params_legacy(param_dict):
         return curriculum_params
     else:
         return False
-
-
-def get_data_routing(param_dict):
-    output = {}
-    output[DATA_ROUTING_ENABLED] = get_data_routing_enabled(param_dict)
-    if DATA_ROUTING not in param_dict.keys():
-        param_dict[DATA_ROUTING] = {}
-    sub_param_dict = param_dict[DATA_ROUTING]
-    output[RANDOM_LTD] = get_random_ltd(sub_param_dict)
-
-    return output
-
-
-def get_data_routing_enabled(param_dict):
-    if DATA_ROUTING in param_dict.keys():
-        return get_scalar_param(param_dict[DATA_ROUTING],
-                                DATA_ROUTING_ENABLED,
-                                DATA_ROUTING_ENABLED_DEFAULT)
-    else:
-        return False
-
-
-def get_random_ltd(param_dict):
-    output = {}
-    output[RANDOM_LTD_ENABLED] = RANDOM_LTD_ENABLED_DEFAULT
-    output[RANDOM_LTD_LAYER_TOKEN_LR_SCHEDULE] = {}
-    output[RANDOM_LTD_LAYER_TOKEN_LR_SCHEDULE][
-        RANDOM_LTD_LAYER_TOKEN_LR_ENABLED] = RANDOM_LTD_LAYER_TOKEN_LR_ENABLED_DEFAULT
-    if get_random_ltd_enabled(param_dict):
-        output[RANDOM_LTD_ENABLED] = get_random_ltd_enabled(param_dict)
-        for key, val in get_random_ltd_params(param_dict).items():
-            output[key] = val
-    return output
-
-
-def get_random_ltd_enabled(param_dict):
-    if RANDOM_LTD in param_dict.keys():
-        return get_scalar_param(param_dict[RANDOM_LTD],
-                                RANDOM_LTD_ENABLED,
-                                RANDOM_LTD_ENABLED_DEFAULT)
-    else:
-        return False
-
-
-def get_random_ltd_params(param_dict):
-    if RANDOM_LTD in param_dict.keys():
-        random_ltd_params = copy.copy(param_dict[RANDOM_LTD])
-        random_ltd_params.pop(RANDOM_LTD_ENABLED)
-        return random_ltd_params
-    else:
-        return {}
