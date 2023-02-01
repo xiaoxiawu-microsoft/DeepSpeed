@@ -120,20 +120,17 @@ class DeepSpeedDataEfficiencyConfig(DeepSpeedConfigModel):
     data_sampling: DataSamplingConfig = {}
     data_routing: DataRoutingConfig = {}
 
+class LegacyCurriculumScheduleConfig(DeepSpeedConfigModel):
+    total_curriculum_step: int = Field(None, ge=0)
+    difficulty_step: int = Field(None, ge=0)
+    root_degree: int = Field(None, ge=0)
+    difficulty: List[int] = None
+    max_step: List[int] = None
 
-def get_curriculum_enabled_legacy(param_dict):
-    if CURRICULUM_LEARNING_LEGACY in param_dict.keys():
-        return get_scalar_param(param_dict[CURRICULUM_LEARNING_LEGACY],
-                                CURRICULUM_ENABLED_LEGACY,
-                                CURRICULUM_ENABLED_DEFAULT_LEGACY)
-    else:
-        return False
-
-
-def get_curriculum_params_legacy(param_dict):
-    if CURRICULUM_LEARNING_LEGACY in param_dict.keys():
-        curriculum_params = copy.copy(param_dict[CURRICULUM_LEARNING_LEGACY])
-        curriculum_params.pop(CURRICULUM_ENABLED_LEGACY)
-        return curriculum_params
-    else:
-        return False
+class DeepSpeedLegacyCurriculumLearningConfig(DeepSpeedConfigModel):
+    enabled: bool = False
+    curriculum_type: Literal['seqlen'] = None
+    min_difficulty: int = Field(None, ge=0)
+    max_difficulty: int = Field(None, ge=0)
+    schedule_type: CurriculumScheduleTypeEnum = None
+    schedule_config:
