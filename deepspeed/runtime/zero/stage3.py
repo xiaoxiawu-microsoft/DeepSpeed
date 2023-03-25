@@ -33,7 +33,7 @@ pg_correctness_test = False
 def print_rank_0(message, debug=False, force=False):
     rank = dist.get_rank()
     if rank == 0 and (debug or force):
-        print(message)
+        logger.info(message)
     # other variations
     # - print for all ranks w/o interleaving
     # printflock(f"[{rank}] {message}")
@@ -1093,6 +1093,10 @@ class DeepSpeedZeroOptimizer_Stage3(ZeROOptimizer):
             self.__reduce_and_partition_ipg_grads()
 
         param_id = self.get_param_id(param)
+        # param_norm = float(param.float().norm())
+        # grad_norm = float(param.grad.float().norm())
+        # print_rank_0(f'add grad bucket: {param_id=} {param_norm=} {grad_norm=}', force=True)
+
         assert self.params_already_reduced[param_id] == False, \
             f"The parameter {param_id} has already been reduced. \
             Gradient computed twice for this partition. \
@@ -1278,9 +1282,11 @@ class DeepSpeedZeroOptimizer_Stage3(ZeROOptimizer):
                 grad_buffer.copy_(grad_partition, non_blocking=True)
                 # ensure grad buffer is a CUDA buffer to speed up the next few
                 # operations and so it can be used asynchronously
-                grad_buffer = grad_buffer.to(grad_partition.device, non_blocking=True)
+                overflow_grad_buffer = grad_partition
+
             elif get_accelerator().on_accelerator(grad_buffer):
                 grad_buffer.add_(grad_partition)
+                overflow_grad_buffer = grad_buffer
             else:
                 # if dst is CPU, copy first to src device, do the addition
                 # there, then move back to dst. adding directly to cpu is very slow
@@ -1290,15 +1296,15 @@ class DeepSpeedZeroOptimizer_Stage3(ZeROOptimizer):
                 grad_buffer.copy_(cuda_grad_buffer, non_blocking=True)
                 # ensure grad buffer is a CUDA buffer to speed up the next few
                 # operations and so it can be used asynchronously
-                grad_buffer = cuda_grad_buffer
+                overflow_grad_buffer = cuda_grad_buffer
 
             if hasattr(self.__inf_or_nan_tracker, "logical_or_"):
-                self.__inf_or_nan_tracker.logical_or_(torch.isinf(grad_buffer).any())
-                self.__inf_or_nan_tracker.logical_or_(torch.isnan(grad_buffer).any())
+                self.__inf_or_nan_tracker.logical_or_(torch.isinf(overflow_grad_buffer).any())
+                self.__inf_or_nan_tracker.logical_or_(torch.isnan(overflow_grad_buffer).any())
             else:
                 # logical_or_ not available in older versions of pytorch
-                self.__inf_or_nan_tracker += torch.isinf(grad_buffer).any()
-                self.__inf_or_nan_tracker += torch.isnan(grad_buffer).any()
+                self.__inf_or_nan_tracker += torch.isinf(overflow_grad_buffer).any()
+                self.__inf_or_nan_tracker += torch.isnan(overflow_grad_buffer).any()
                 self.__inf_or_nan_tracker = self.__inf_or_nan_tracker > 0
 
             # offload the gradient partition if applicable
@@ -1307,7 +1313,7 @@ class DeepSpeedZeroOptimizer_Stage3(ZeROOptimizer):
 
                 if self.is_gradient_accumulation_boundary:
                     self.norm_for_param_grads[self.get_param_id(
-                        param)] = self._constant_buffered_norm2(grad_buffer)
+                        param)] = self._constant_buffered_norm2(overflow_grad_buffer)
 
                     if self._swappable_optimizer_subgroup(i):
                         if not i in offload_fp32_gradients.keys():
@@ -1992,6 +1998,7 @@ class DeepSpeedZeroOptimizer_Stage3(ZeROOptimizer):
             clip = ((total_norm / self.loss_scale) + 1e-6) / self.clip_grad
             if clip > 1:
                 combined_scale = clip * self.loss_scale
+            # print_rank_0(f'grad norm: raw = {total_norm}, clip = {clip}, final = {combined_scale}', force=True)
 
         self.fp32_partitioned_groups_flat[sub_group_id].grad.mul_(1. / combined_scale)
 
